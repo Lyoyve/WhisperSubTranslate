@@ -317,6 +317,103 @@ document.addEventListener('DOMContentLoaded', () => {
     startProcessing();
   };
 
+  // 外部 HTTP 任务：每次只处理一个新视频，复用现有完整流程。
+  window.electronAPI.onExternalProcessRequest(async ({ jobId, filePath }) => {
+    let result;
+
+    try {
+      const activeStatuses = new Set(['pending', 'processing', 'translating']);
+
+      if (isProcessing || fileQueue.some((file) => activeStatuses.has(file.status))) {
+        throw new Error('软件正在处理其他任务或队列中存在待处理文件');
+      }
+
+      if (typeof filePath !== 'string' || !filePath.trim()) {
+        throw new Error('缺少有效的视频路径');
+      }
+
+      const normalizedPath = filePath.trim();
+
+      // 已在历史队列中的路径不重复添加。
+      const existing = fileQueue.find((file) => file.path === normalizedPath);
+
+      if (existing && !['completed', 'error', 'stopped', 'skipped'].includes(existing.status)) {
+        throw new Error('该文件已经在队列中，且尚未结束');
+      }
+
+      // // 如果相同路径曾经处理过，则创建新的任务记录，保留历史记录。
+      // addToQueue(normalizedPath);
+
+      // const file = fileQueue[fileQueue.length - 1];
+
+      const previousFiles = new Set(fileQueue);
+      addToQueue(normalizedPath);
+
+      let file = fileQueue.find(
+        (item) => !previousFiles.has(item) && item.path === normalizedPath
+      );
+
+      if (!file) {
+        // 路径已存在于历史队列时，直接创建独立的新任务记录。
+        file = {
+          path: normalizedPath,
+          status: 'pending',
+          progress: 0,
+          addedAt: new Date(),
+        };
+        fileQueue.push(file);
+        updateQueueDisplay();
+        updateUIMode();
+      }
+
+      // 调用现有开始流程，沿用 UI 中当前的模型、语言和翻译设置。
+      await startProcessing();
+
+      // 等待任务最终状态。部分翻译流程可能在 startProcessing 返回后继续运行。
+      const deadline = Date.now() + 2 * 60 * 60 * 1000;
+      const terminalStatuses = new Set(['completed', 'error', 'stopped', 'skipped']);
+
+      while (Date.now() < deadline) {
+        if (terminalStatuses.has(file.status)) break;
+
+        if (!isProcessing && file.status === 'pending') {
+          throw new Error('任务未启动，请检查翻译引擎配置和软件状态');
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      if (!terminalStatuses.has(file.status)) {
+        throw new Error('等待任务结束超时');
+      }
+
+      const outputPaths = [
+        ...(file.outputPaths || []),
+        ...(file.outputPath ? [file.outputPath] : []),
+      ].filter((value, index, array) => typeof value === 'string' && array.indexOf(value) === index);
+
+      result = {
+        success: file.status === 'completed',
+        filePath: normalizedPath,
+        status: file.status,
+        outputPaths,
+        error: file.status === 'error'
+          ? (file.error || file.errorMessage || '视频处理失败，请检查软件日志')
+          : null,
+      };
+    } catch (error) {
+      result = {
+        success: false,
+        filePath,
+        status: 'error',
+        outputPaths: [],
+        error: error.message || String(error),
+      };
+    }
+
+    window.electronAPI.sendExternalProcessResult({ jobId, result });
+  });
+
   // 파일 선택 버튼 이벤트
   selectFileBtn.onclick = selectFile;
   if (addFolderBtn) {
