@@ -1532,7 +1532,7 @@ body::after {
 }
 
 .btn-select-file {
-  margin-top: 2px;
+  margin-top: 0;
   padding: 12px 30px;
   display: inline-flex;
   align-items: center;
@@ -1566,6 +1566,15 @@ body::after {
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     inset 0 -1px 0 rgba(0, 0, 0, 0.14),
     0 3px 8px rgba(203, 166, 247, 0.2);
+}
+
+.drop-actions {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* ============================================================

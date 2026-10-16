@@ -140,7 +140,7 @@
             </div>
             <h3 id="dropTitle" class="drop-title">여기에 파일을 놓아주세요</h3>
             <p id="dropHint1" class="drop-hint">동영상이나 SRT 파일을 드래그 또는 클릭하세요</p>
-            <button id="selectFileBtn" class="btn-select-file">
+            <!-- <button id="selectFileBtn" class="btn-select-file">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -154,7 +154,30 @@
                 <polyline points="14 2 14 8 20 8" />
               </svg>
               <span>파일 선택</span>
-            </button>
+            </button> -->
+            <div class="drop-actions">
+              <button id="selectFileBtn" class="btn-select-file" type="button">
+                <!-- 原来的 SVG -->
+                <span>파일 선택</span>
+              </button>
+
+              <button id="addFolderRecursiveBtn" class="btn-select-file" type="button">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  style="width: 14px; height: 14px"
+                >
+                  <path d="M3 7a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                  <path d="M12 11v6" />
+                  <path d="M9 14h6" />
+                </svg>
+                <span>递归添加文件夹</span>
+              </button>
+            </div>
             <div class="drop-formats-row" id="dropHint2">
               <span class="drop-format-chip">MP4</span>
               <span class="drop-format-chip">MKV</span>

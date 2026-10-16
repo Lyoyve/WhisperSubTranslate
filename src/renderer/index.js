@@ -174,17 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const dropZone = document.getElementById('dropZone');
   const runBtn = document.getElementById('runBtn');
   const selectFileBtn = document.getElementById('selectFileBtn');
-
-  // 新增：递归添加整个文件夹
-  const addFolderBtn = selectFileBtn.cloneNode(false);
-  addFolderBtn.id = 'addFolderRecursiveBtn';
-  addFolderBtn.textContent = '递归添加文件夹';
-  addFolderBtn.title = '扫描所选文件夹及其所有子文件夹中的视频';
-  selectFileBtn.insertAdjacentElement('afterend', addFolderBtn);
-
-  addFolderBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-  });
+  const addFolderBtn = document.getElementById('addFolderRecursiveBtn');
 
   // drag & drop events (드래그앤드롭 이벤트)
   if (!dropZone) {
@@ -329,58 +319,81 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 파일 선택 버튼 이벤트
   selectFileBtn.onclick = selectFile;
+  if (addFolderBtn) {
+    addFolderBtn.onclick = async (e) => {
+      e.stopPropagation();
 
-  addFolderBtn.onclick = async (e) => {
-    e.stopPropagation();
-
-    if (isProcessing) {
-      addOutput('当前正在处理队列，请等待本轮处理完成后再添加文件夹。\n');
-      return;
-    }
-
-    try {
-      const result = await window.electronAPI.showOpenDialog({
-        properties: ['openDirectory'],
-        title: '选择需要递归扫描的视频文件夹',
-      });
-
-      if (result.canceled || !result.filePaths?.length) return;
-
-      const folderPath = result.filePaths[0];
-
-      addOutput(`开始扫描文件夹：${folderPath}\n`);
-
-      const scanResult =
-        await window.electronAPI.scanVideoFilesRecursive(folderPath);
-
-      if (!scanResult?.success) {
-        addOutput(`扫描失败：${scanResult?.error || '未知错误'}\n`);
+      if (isProcessing) {
+        addOutput(
+          '当前正在处理队列，请等待本轮处理完成后再添加文件夹。\n',
+        );
         return;
       }
 
-      if (scanResult.filePaths.length === 0) {
-        addOutput('没有找到支持的视频文件，请检查文件夹路径和访问权限。\n');
-        return;
+      try {
+        const result = await window.electronAPI.showOpenDialog({
+          properties: ['openDirectory'],
+          title: '选择需要递归扫描的视频文件夹',
+        });
+
+        if (result.canceled || !result.filePaths?.length) {
+          return;
+        }
+
+        const folderPath = result.filePaths[0];
+
+        addOutput(`开始扫描文件夹：${folderPath}\n`);
+
+        const scanResult =
+          await window.electronAPI.scanVideoFilesRecursive(folderPath);
+
+        if (!scanResult?.success) {
+          addOutput(
+            `扫描失败：${scanResult?.error || '未知错误'}\n`,
+          );
+          return;
+        }
+
+        const filePaths = Array.isArray(scanResult.filePaths)
+          ? scanResult.filePaths
+          : [];
+
+        if (filePaths.length === 0) {
+          addOutput(
+            '没有找到支持的视频文件，请检查文件夹路径和访问权限。\n',
+          );
+          return;
+        }
+
+        const previousLength = fileQueue.length;
+
+        addToQueueBatch(filePaths);
+
+        const addedCount = fileQueue.length - previousLength;
+        const skippedCount = filePaths.length - addedCount;
+
+        addOutput(
+          `扫描完成：找到 ${filePaths.length} 个视频文件，` +
+          `新增 ${addedCount} 个到队列，` +
+          `${skippedCount} 个重复文件已跳过。\n`,
+        );
+      } catch (error) {
+        console.error('[FolderScan] Error:', error);
+        addOutput(`递归扫描失败：${error.message}\n`);
       }
+    };
+  }
 
-      addToQueueBatch(scanResult.filePaths);
-
-      addOutput(
-        `扫描完成：找到 ${scanResult.count} 个视频文件，已提交到队列（重复文件会自动跳过）。\n`,
-      );
-    } catch (error) {
-      console.error('[FolderScan] Error:', error);
-      addOutput(`递归扫描失败：${error.message}\n`);
-    }
-  };
 
   // 드롭존 전체 클릭도 파일 선택을 연다 (안내 문구는 "드래그 또는 클릭"이라
   // 클릭 동작이 없으면 안내와 불일치한다). 버튼 클릭이 이벤트 버블로 중복
   // 다이얼로그를 열지 않게 버튼에서는 stopPropagation 한다.
   dropZone.onclick = (e) => {
     if (isProcessing) return;
-    if (e.target.closest('#selectFileBtn')) return; // 버튼은 자기 핸들러에 맡긴다
+    if (e.target.closest('#selectFileBtn')) return;
+    if (e.target.closest('#addFolderRecursiveBtn')) return;
     if (e.target.closest('.drop-mascot-frame')) return;
+
     selectFile();
   };
   selectFileBtn.addEventListener('click', (e) => e.stopPropagation());
