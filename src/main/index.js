@@ -1,11 +1,147 @@
 const path = require('path');
 const fs = require('fs');
 const { app, BrowserWindow, ipcMain, session } = require('electron');
+const http = require('http');
+const crypto = require('crypto');
 
 const SOURCE_ROOT = path.resolve(__dirname, '../..');
 let mainWindow = null;
 let cleaningUp = false;
 let quitRequested = false;
+let externalApiServer = null;
+let externalJobActive = false;
+
+const EXTERNAL_API_HOST = '127.0.0.1';
+const EXTERNAL_API_PORT = 32145;
+const EXTERNAL_API_TOKEN = crypto.randomBytes(32).toString('hex');
+
+function sendJson(res, statusCode, data) {
+  if (res.headersSent) return;
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(data));
+}
+
+function startExternalApi() {
+  if (externalApiServer) return;
+
+  const tokenFile = path.join(app.getPath('userData'), 'external-api-token.txt');
+  fs.writeFileSync(tokenFile, EXTERNAL_API_TOKEN, { encoding: 'utf8' });
+
+  externalApiServer = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/process') {
+      sendJson(res, 404, { success: false, error: 'Not found' });
+      return;
+    }
+
+    if (req.headers.authorization !== `Bearer ${EXTERNAL_API_TOKEN}`) {
+      sendJson(res, 401, { success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    if (externalJobActive) {
+      sendJson(res, 409, {
+        success: false,
+        error: 'Another external job is running',
+      });
+      return;
+    }
+
+    let rawBody = '';
+    try {
+      for await (const chunk of req) {
+        rawBody += chunk.toString('utf8');
+        if (Buffer.byteLength(rawBody, 'utf8') > 64 * 1024) {
+          sendJson(res, 413, { success: false, error: 'Request too large' });
+          return;
+        }
+      }
+
+      const payload = JSON.parse(rawBody);
+      const filePath = typeof payload.filePath === 'string' ? payload.filePath.trim() : '';
+
+      if (!filePath || !path.isAbsolute(filePath)) {
+        sendJson(res, 400, {
+          success: false,
+          error: 'filePath must be an absolute path',
+        });
+        return;
+      }
+
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+        sendJson(res, 400, {
+          success: false,
+          filePath,
+          error: 'Video file does not exist',
+        });
+        return;
+      }
+
+      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
+        sendJson(res, 503, {
+          success: false,
+          error: 'Application window is not ready',
+        });
+        return;
+      }
+
+      externalJobActive = true;
+      const jobId = crypto.randomUUID();
+
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            ipcMain.removeListener('external-process-result', onResult);
+            reject(new Error('Processing timed out after 2 hours'));
+          }, 2 * 60 * 60 * 1000);
+
+          function onResult(_event, message) {
+            if (!message || message.jobId !== jobId) return;
+
+            clearTimeout(timeout);
+            ipcMain.removeListener('external-process-result', onResult);
+            resolve(message.result);
+          }
+
+          ipcMain.on('external-process-result', onResult);
+
+          mainWindow.webContents.send('external-process-request', {
+            jobId,
+            filePath,
+          });
+        });
+
+        sendJson(res, 200, result);
+      } catch (error) {
+        sendJson(res, 500, {
+          success: false,
+          filePath,
+          error: error.message || String(error),
+        });
+      } finally {
+        externalJobActive = false;
+      }
+    } catch (error) {
+      sendJson(res, 400, {
+        success: false,
+        error: `Invalid request: ${error.message}`,
+      });
+    }
+  });
+
+  externalApiServer.on('error', (error) => {
+    console.error('[External API] Server error:', error);
+  });
+
+  externalApiServer.listen(EXTERNAL_API_PORT, EXTERNAL_API_HOST, () => {
+    console.log(
+      `[External API] Listening on http://${EXTERNAL_API_HOST}:${EXTERNAL_API_PORT}/process`
+    );
+    console.log(`[External API] Token file: ${tokenFile}`);
+  });
+}
 
 try {
   app.setName('WhisperSubTranslate');
@@ -85,6 +221,7 @@ app.whenReady().then(async () => {
     console.warn('[GPU] Failed to apply saved GPU selection:', error.message);
   }
   openMainWindow();
+  startExternalApi();
 });
 
 app.on('window-all-closed', () => {
@@ -105,6 +242,10 @@ app.on('before-quit', (event) => {
   if (cleaningUp) return;
   cleaningUp = true;
   transcription.stop();
+  if (externalApiServer) {
+    externalApiServer.close();
+    externalApiServer = null;
+  }
   Promise.allSettled([cleanupModels(), transcription.forceMemoryCleanup('cuda', true)]).finally(() => {
     cleaningUp = false;
     quitRequested = true;

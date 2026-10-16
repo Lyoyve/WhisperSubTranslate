@@ -12,13 +12,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('extract-subtitles', data);
   },
 
+  onExternalProcessRequest: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('external-process-request', handler);
+    return () => {
+      ipcRenderer.removeListener('external-process-request', handler);
+    };
+  },
+
+  sendExternalProcessResult: (data) => {
+    ipcRenderer.send('external-process-result', data);
+  },
+
   // 파일 선택 다이얼로그
   showOpenDialog: (options) => {
     return ipcRenderer.invoke('show-open-dialog', options);
   },
 
   scanVideoFilesRecursive: (folderPath) =>
-  ipcRenderer.invoke('scan-video-files-recursive', folderPath),
+    ipcRenderer.invoke('scan-video-files-recursive', folderPath),
 
   // 모델 상태 확인
   checkModelStatus: () => {
