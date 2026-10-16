@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('show-open-dialog', options);
   },
 
+  scanVideoFilesRecursive: (folderPath) =>
+  ipcRenderer.invoke('scan-video-files-recursive', folderPath),
+
   // 모델 상태 확인
   checkModelStatus: () => {
     return ipcRenderer.invoke('check-model-status');

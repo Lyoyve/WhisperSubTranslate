@@ -3,6 +3,7 @@
 module.exports = Object.freeze({
   EXTRACT_SUBTITLES: 'extract-subtitles',
   SHOW_OPEN_DIALOG: 'show-open-dialog',
+  SCAN_VIDEO_FILES_RECURSIVE: 'scan-video-files-recursive',
   CHECK_MODEL_STATUS: 'check-model-status',
   DOWNLOAD_MODEL: 'download-model',
   WHISPER_MODEL_CANCEL: 'whisper-model-cancel',
